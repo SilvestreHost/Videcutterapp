@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8" />
+    <title>Video Downloader & Cutter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3.4.38/dist/vue.global.prod.js"></script>
+    <style>
+        body { background:#f8f9fa; }
+        .app-title { display:flex; align-items:center; gap:.6rem; }
+        .spinner {
+            width: 1rem; height: 1rem; border: .2rem solid #e9ecef; border-top-color: #0d6efd;
+            border-radius: 50%; animation: spin 1s linear infinite; display:inline-block; margin-right:.5rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .card-shadow { box-shadow: 0 0.25rem 0.5rem rgba(0,0,0,.05); }
+        .is-invalid + .invalid-feedback { display:block; }
+    </style>
+</head>
+<body>
+<div id="app" class="container py-4">
+    <div class="card card-shadow">
+        <div class="card-body">
+            <h2 class="app-title mb-4"><i class="bi bi-film"></i> <span>Video Downloader & Cutter</span></h2>
+
+            <!-- URL -->
+            <label class="form-label">Link do vídeo</label>
+            <div class="input-group mb-3">
+                <input
+                        type="text"
+                        class="form-control"
+                        :class="{'is-invalid': errors.url}"
+                        placeholder="Cole o link do vídeo aqui…"
+                        v-model.trim="form.url"
+                />
+                <button class="btn btn-outline-secondary" @click="pasteFromClipboard" title="Colar da Área de Transferência">
+                    <i class="bi bi-clipboard-plus"></i> Colar
+                </button>
+                <div class="invalid-feedback">{{ errors.url }}</div>
+            </div>
+
+            <!-- Destino (OBRIGATÓRIO) -->
+            <label class="form-label">Destino (obrigatório)</label>
+            <div class="input-group mb-1">
+                <input
+                        type="text"
+                        class="form-control"
+                        :class="{'is-invalid': errors.outputDir}"
+                        placeholder="Selecione a pasta de destino"
+                        v-model.trim="form.outputDir"
+                        readonly
+                />
+                <button class="btn btn-outline-secondary" @click="pickFolder" title="Selecionar pasta">
+                    <i class="bi bi-folder2-open"></i> Selecionar pasta
+                </button>
+            </div>
+            <div class="invalid-feedback d-block mb-3" v-if="errors.outputDir">{{ errors.outputDir }}</div>
+
+            <!-- Preset -->
+            <div class="mb-3">
+                <label class="form-label">Qualidade de saída</label>
+                <select class="form-select" v-model="form.profile">
+                    <option value="original">Original (sem conversão)</option>
+                    <option value="whatsapp">WhatsApp (leve)</option>
+                    <option value="480p">480p</option>
+                    <option value="720p">720p</option>
+                    <option value="1080p">1080p</option>
+                    <option value="4k">4K</option>
+                    <option value="mp3">Somente áudio (MP3)</option>
+                </select>
+            </div>
+
+            <!-- Tempos -->
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label">Início</label>
+                    <input
+                            type="time"
+                            step="1"
+                            class="form-control"
+                            :class="{'is-invalid': errors.timePair}"
+                            placeholder="hh:mm:ss"
+                            v-model="form.start"
+                    />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Fim</label>
+                    <input
+                            type="time"
+                            step="1"
+                            class="form-control"
+                            :class="{'is-invalid': errors.timePair}"
+                            placeholder="hh:mm:ss"
+                            v-model="form.end"
+                    />
+                    <div class="invalid-feedback">{{ errors.timePair }}</div>
+                </div>
+            </div>
+
+            <!-- Botões -->
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary" :disabled="busy" @click="submitOneButton">
+                    <i class="bi bi-download me-1"></i> Baixar
+                </button>
+                <button class="btn btn-outline-danger" :disabled="!busy" @click="cancelAction">
+                    <i class="bi bi-x-circle me-1"></i> Cancelar
+                </button>
+            </div>
+
+            <!-- Status -->
+            <div class="mt-4">
+                <div class="d-flex align-items-center gap-2">
+                    <span v-if="status.running" class="spinner"></span>
+                    <strong>{{ statusLabel }}</strong>
+                </div>
+                <div class="progress mt-2" style="height:10px;">
+                    <div
+                            class="progress-bar"
+                            :class="progressBarClass"
+                            role="progressbar"
+                            :style="{width: progressPercent + '%'}"
+                    ></div>
+                </div>
+                <pre v-if="showLog" class="mt-3 small text-muted" style="white-space:pre-wrap;">{{ status.detail }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const { createApp, reactive, computed, onMounted } = Vue;
+
+    createApp({
+        setup() {
+            const form = reactive({
+                url: "",
+                profile: "original", // default
+                start: "",
+                end: "",
+                outputDir: "" // obrigatório
+            });
+
+            const errors = reactive({ url: "", timePair: "", outputDir: "" });
+            const status = reactive({ running: false, stage: "Aguardando", detail: "" });
+
+            const busy = computed(() => status.running);
+
+            const stageToPercent = (stage) => {
+                const s = (stage || "").toLowerCase();
+                if (s === "aguardando") return 0;
+                if (s === "baixando")   return 40;
+                if (s === "convertendo")return 85;
+                if (s === "finalizado" || s === "erro" || s === "cancelado") return 100;
+                return 0;
+            };
+
+            const progressPercent = computed(() => stageToPercent(status.stage));
+            const progressBarClass = computed(() => ({
+                "bg-success": status.stage === "Finalizado",
+                "bg-danger":  status.stage === "Erro" || status.stage === "Cancelado"
+            }));
+
+            const statusLabel = computed(() => {
+                if (status.running) return `${status.stage}${status.detail ? " — " + status.detail : ""}`;
+                return `${status.stage || "Aguardando"}${status.detail ? " — " + status.detail : ""}`;
+            });
+
+            const showLog = computed(() => (status.stage === "Erro" || status.stage === "Cancelado") && status.detail);
+
+            const normalizeTime = (t) => {
+                if (!t) return "";
+                if (/^\d{2}:\d{2}$/.test(t)) return t + ":00";
+                return t;
+            };
+
+            const validate = () => {
+                errors.url = "";
+                errors.timePair = "";
+                errors.outputDir = "";
+
+                if (!form.url.trim()) errors.url = "Informe o link do vídeo.";
+                const s = form.start.trim(), e = form.end.trim();
+                if ((s && !e) || (!s && e)) errors.timePair = "Preencha início e fim juntos, ou deixe ambos em branco.";
+                if (!form.outputDir.trim()) errors.outputDir = "Selecione a pasta de destino.";
+
+                return !errors.url && !errors.timePair && !errors.outputDir;
+            };
+
+            // Selecionar pasta (abre diálogo no Windows)
+            const pickFolder = async () => {
+                try {
+                    const res = await fetch("/pick-folder");
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data && data.path) form.outputDir = data.path;
+                } catch {}
+            };
+
+            const submitOneButton = async () => {
+                if (!validate()) return;
+
+                const action = (form.profile === "original") ? "download" : "convert";
+                const payload = {
+                    action,
+                    url: form.url.trim(),
+                    profile: form.profile,
+                    start: normalizeTime(form.start.trim()),
+                    end: normalizeTime(form.end.trim()),
+                    outputDir: form.outputDir.trim()
+                };
+
+                try {
+                    status.stage = "Aguardando";
+                    status.detail = "Iniciando tarefa…";
+                    status.running = true;
+
+                    const res = await fetch("/action", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const text = await res.text();
+                    if (!res.ok) {
+                        status.stage = (text.includes("cancelada") ? "Cancelado" : "Erro");
+                        status.detail = text || "Falha desconhecida.";
+                        status.running = false;
+                    } else {
+                        status.stage = "Finalizado";
+                        status.detail = text;
+                        status.running = false;
+                    }
+                } catch (err) {
+                    status.stage = "Erro";
+                    status.detail = String(err);
+                    status.running = false;
+                }
+            };
+
+            const cancelAction = async () => {
+                try {
+                    await fetch("/cancel");
+                    // UI dá feedback imediato; polling confirmará
+                    status.stage = "Cancelado";
+                    status.detail = "Cancelando…";
+                    status.running = false;
+                } catch {}
+            };
+
+            const pasteFromClipboard = async () => {
+                try {
+                    const text = await navigator.clipboard.readText();
+                    form.url = text;
+                } catch {}
+            };
+
+            const pollStatus = async () => {
+                try {
+                    const res = await fetch("/status");
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    status.running = !!data.running;
+                    status.stage = data.stage || "Aguardando";
+                    status.detail = data.detail || "";
+                } catch {}
+            };
+
+            onMounted(() => {
+                pollStatus();
+                setInterval(pollStatus, 1000);
+            });
+
+            return {
+                form, errors, status, busy,
+                progressPercent, progressBarClass, statusLabel, showLog,
+                pasteFromClipboard, submitOneButton, pickFolder, cancelAction
+            };
+        }
+    }).mount("#app");
+</script>
+</body>
+</html>
