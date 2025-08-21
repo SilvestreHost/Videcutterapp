@@ -519,11 +519,13 @@ func handleConvert(ctx context.Context, url, profile, start, end, outDir string)
 			} else {
 				errMsg := fmt.Sprintf("ffmpeg falhou.\n---LOG 1 (com corte)---\n%s\n---LOG 2 (sem corte)---\n%s", log, log2)
 				setStage("Erro", errMsg, false)
+				cleanupConvertTemp(tempDir, tempPattern, outFile)
 				return "", fmt.Errorf(errMsg)
 			}
 		}
 		errMsg := fmt.Sprintf("ffmpeg falhou:\n%s", log)
 		setStage("Erro", errMsg, false)
+		cleanupConvertTemp(tempDir, tempPattern, outFile)
 		return "", fmt.Errorf(errMsg)
 	}
 
