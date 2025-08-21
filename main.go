@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 )
 
 // ------------------- EMBED FRONTEND -------------------
@@ -591,7 +593,17 @@ func pickFolderHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Falha ao abrir seletor de pasta: "+out.String(), http.StatusInternalServerError)
 		return
 	}
-	path := strings.TrimSpace(out.String())
+
+	raw := out.Bytes()
+	if len(raw) >= 2 && raw[0] == 0xFF && raw[1] == 0xFE {
+		raw = raw[2:]
+	}
+	u16 := make([]uint16, 0, len(raw)/2)
+	for i := 0; i+1 < len(raw); i += 2 {
+		u16 = append(u16, binary.LittleEndian.Uint16(raw[i:]))
+	}
+	path := strings.TrimSpace(string(utf16.Decode(u16)))
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pickFolderResp{Path: path})
 }
