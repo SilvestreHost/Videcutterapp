@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -176,10 +177,31 @@ func findFirstGlob(pattern string) (string, error) {
 }
 
 func validateTimes(start, end string) error {
-	if (start == "" && end == "") || (start != "" && end != "") {
+	if start == "" && end == "" {
 		return nil
 	}
-	return errors.New("preencha início e fim juntos ou deixe ambos em branco")
+	if start == "" || end == "" {
+		return errors.New("preencha início e fim juntos ou deixe ambos em branco")
+	}
+
+	re := regexp.MustCompile(`^[0-9]{2}:[0-5][0-9]:[0-5][0-9]$`)
+	if !re.MatchString(start) || !re.MatchString(end) {
+		return errors.New("tempos devem estar no formato HH:MM:SS")
+	}
+
+	toSeconds := func(t string) int {
+		parts := strings.Split(t, ":")
+		h, _ := strconv.Atoi(parts[0])
+		m, _ := strconv.Atoi(parts[1])
+		s, _ := strconv.Atoi(parts[2])
+		return h*3600 + m*60 + s
+	}
+
+	if toSeconds(start) >= toSeconds(end) {
+		return errors.New("tempo inicial deve ser menor que o tempo final")
+	}
+
+	return nil
 }
 
 func runCmdWithLog(cmd *exec.Cmd) (string, error) {
