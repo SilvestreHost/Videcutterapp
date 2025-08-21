@@ -103,10 +103,10 @@
 
             <!-- Botões -->
             <div class="d-flex gap-2">
-                <button class="btn btn-primary" :disabled="busy" @click="submitOneButton">
+                <button type="button" class="btn btn-primary" :disabled="busy" @click="submitOneButton">
                     <i class="bi bi-download me-1"></i> Baixar
                 </button>
-                <button class="btn btn-outline-danger" :disabled="!busy" @click="cancelAction">
+                <button type="button" class="btn btn-outline-danger" :disabled="!status.running || cancelling" @click="cancelAction">
                     <i class="bi bi-x-circle me-1"></i> Cancelar
                 </button>
             </div>
@@ -132,7 +132,7 @@
 </div>
 
 <script>
-    const { createApp, reactive, computed, onMounted } = Vue;
+    const { createApp, reactive, computed, onMounted, ref } = Vue;
 
     createApp({
         setup() {
@@ -146,8 +146,9 @@
 
             const errors = reactive({ url: "", timePair: "", outputDir: "" });
             const status = reactive({ running: false, stage: "Aguardando", detail: "" });
+            const cancelling = ref(false);
 
-            const busy = computed(() => status.running);
+            const busy = computed(() => status.running || cancelling.value);
 
             const stageToPercent = (stage) => {
                 const s = (stage || "").toLowerCase();
@@ -243,6 +244,7 @@
 
             const cancelAction = async () => {
                 try {
+                    cancelling.value = true;
                     await fetch("/cancel");
                     // UI dá feedback imediato; polling confirmará
                     status.stage = "Cancelado";
@@ -263,6 +265,13 @@
                     const res = await fetch("/status");
                     if (!res.ok) return;
                     const data = await res.json();
+                    if (cancelling.value) {
+                        if (!data.running) {
+                            cancelling.value = false;
+                        } else {
+                            return;
+                        }
+                    }
                     status.running = !!data.running;
                     status.stage = data.stage || "Aguardando";
                     status.detail = data.detail || "";
@@ -275,7 +284,7 @@
             });
 
             return {
-                form, errors, status, busy,
+                form, errors, status, busy, cancelling,
                 progressPercent, progressBarClass, statusLabel, showLog,
                 pasteFromClipboard, submitOneButton, pickFolder, cancelAction
             };
