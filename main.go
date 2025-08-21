@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -28,9 +29,17 @@ var content embed.FS
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
-		data, _ := content.ReadFile("web/index.html")
+		data, err := content.ReadFile("web/index.html")
+		if err != nil {
+			log.Printf("erro ao ler index.html: %v", err)
+			http.Error(w, "Erro ao carregar página", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			log.Printf("erro ao escrever resposta: %v", err)
+			return
+		}
 		return
 	}
 	http.FileServer(http.FS(content)).ServeHTTP(w, r)
