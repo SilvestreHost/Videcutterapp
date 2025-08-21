@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -665,16 +666,18 @@ func main() {
 		return
 	}
 
+	addr := flag.String("addr", "127.0.0.1:8080", "endereço do servidor")
+	flag.Parse()
+
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/action", actionHandler)
 	http.HandleFunc("/status", statusHandler)
 	http.HandleFunc("/pick-folder", pickFolderHandler)
 	http.HandleFunc("/cancel", cancelHandler)
 
-	addr := ":8080"
-	go openBrowser("http://localhost" + addr)
-	fmt.Println("🚀 Servidor rodando em http://localhost" + addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	go openBrowser("http://" + *addr)
+	fmt.Println("🚀 Servidor rodando em http://" + *addr)
+	if err := http.ListenAndServe(*addr, nil); err != nil {
 		fmt.Println("Erro no servidor:", err)
 	}
 }
