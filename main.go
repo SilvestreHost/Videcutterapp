@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 )
 
 // ------------------- EMBED FRONTEND -------------------
@@ -591,7 +593,39 @@ func pickFolderHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Falha ao abrir seletor de pasta: "+out.String(), http.StatusInternalServerError)
 		return
 	}
-	path := strings.TrimSpace(out.String())
+
+	raw := out.Bytes()
+	var path string
+	switch {
+	case len(raw) >= 2 && raw[0] == 0xFF && raw[1] == 0xFE:
+		// UTF-16LE with BOM
+		raw = raw[2:]
+		u16 := make([]uint16, 0, len(raw)/2)
+		for i := 0; i+1 < len(raw); i += 2 {
+			u16 = append(u16, binary.LittleEndian.Uint16(raw[i:i+2]))
+		}
+		path = string(utf16.Decode(u16))
+	case len(raw) >= 2 && raw[0] == 0xFE && raw[1] == 0xFF:
+		// UTF-16BE with BOM
+		raw = raw[2:]
+		u16 := make([]uint16, 0, len(raw)/2)
+		for i := 0; i+1 < len(raw); i += 2 {
+			u16 = append(u16, binary.BigEndian.Uint16(raw[i:i+2]))
+		}
+		path = string(utf16.Decode(u16))
+	case bytes.IndexByte(raw, 0) != -1:
+		// UTF-16 without BOM (assume little-endian)
+		u16 := make([]uint16, 0, len(raw)/2)
+		for i := 0; i+1 < len(raw); i += 2 {
+			u16 = append(u16, binary.LittleEndian.Uint16(raw[i:i+2]))
+		}
+		path = string(utf16.Decode(u16))
+	default:
+		// assume UTF-8
+		path = string(raw)
+	}
+	path = strings.Trim(path, "\x00\r\n\t ")
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pickFolderResp{Path: path})
 }
