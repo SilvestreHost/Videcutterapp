@@ -288,6 +288,17 @@ func sanitizeFilename(name string) string {
 	return name
 }
 
+func hasInvalidPathRune(s string) bool {
+	for i, r := range s {
+		if r < 32 || strings.ContainsRune(`<>:"|?*`, r) {
+			if !(i == 1 && r == ':') {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func getVideoTitle(ctx context.Context, url string) (string, error) {
 	yt, err := findTool("yt-dlp.exe")
 	if err != nil {
@@ -624,7 +635,11 @@ func pickFolderHandler(w http.ResponseWriter, r *http.Request) {
 		// assume UTF-8
 		path = string(raw)
 	}
-	path = strings.Trim(path, "\x00\r\n\t ")
+	path = strings.TrimSpace(strings.Trim(path, "\x00"))
+	if strings.ContainsRune(path, '\uFFFD') || hasInvalidPathRune(path) {
+		http.Error(w, "Caminho de destino contém caracteres inválidos.", http.StatusBadRequest)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pickFolderResp{Path: path})
